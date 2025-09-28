@@ -1,99 +1,196 @@
-const User = require('../models/User');
-const modulrService = require('../services/modulrService');
-const jwt = require('jsonwebtoken');
+import User from '../models/User.js';
+import jwt from 'jsonwebtoken';
+import modulrService from '../services/modulrService.js';
 
-const generateToken = (id) => {
-  return jwt.sign({ id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+const signToken = (id) => {
+  return jwt.sign({ id }, process.env.JWT_SECRET, {
+    expiresIn: process.env.JWT_EXPIRES_IN,
+  });
 };
 
-// @desc    Register a new user
-// @route   POST /api/auth/register
-// @access  Public
-exports.register = async (req, res) => {
+const createSendToken = (user, statusCode, res) => {
+  const token = signToken(user._id);
+
+  // Remove password from output
+  user.password = undefined;
+
+  res.status(statusCode).json({
+    status: 'success',
+    token,
+    data: {
+      user,
+    },
+  });
+};
+
+export const register = async (req, res, next) => {
   try {
-    const { name, email, password, dateOfBirth, phone, address } = req.body;
-
-    // Check if user exists
-    const userExists = await User.findOne({ email });
-    if (userExists) {
-      return res.status(400).json({ message: 'User already exists' });
-    }
-
-    // Create user in Modulr
-    let modulrCustomer;
-    try {
-      modulrCustomer = await modulrService.createCustomer({
-        name,
-        email,
-        dateOfBirth,
-        phone,
-        address,
-      });
-    } catch (error) {
-      return res.status(500).json({ message: 'Error creating customer in payment system' });
-    }
-
-    // Create user in database
-    const user = await User.create({
-      name,
+    const {
       email,
       password,
+      firstName,
+      lastName,
       dateOfBirth,
       phone,
-      address,
-      modulrCustomerId: modulrCustomer.id,
-    });
+      address
+    } = req.body;
 
-    // Create a primary account for the user
-    let modulrAccount;
-    try {
-      modulrAccount = await modulrService.createAccount(modulrCustomer.id);
-    } catch (error) {
-      // If account creation fails, we may need to handle it (e.g., delete the user)
-      return res.status(500).json({ message: 'Error creating account in payment system' });
+    // Check if user exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'User already exists with this email'
+      });
     }
 
-    // Update user with account details
-    user.accounts.push({
-      accountId: modulrAccount.id,
-      currency: modulrAccount.currency,
-      sortCode: modulrAccount.sortCode,
-      accountNumber: modulrAccount.accountNumber,
-      balance: modulrAccount.balance || 0,
+    // Create user in database first
+    const user = await User.create({
+      email,
+      password,
+      personalDetails: {
+        firstName,
+        lastName,
+        dateOfBirth: new Date(dateOfBirth),
+        phone,
+        address
+      }
     });
-    await user.save();
 
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      email: user.email,
-      token: generateToken(user._id),
-    });
+    // Create customer in Modulr
+    try {
+      const modulrCustomer = await modulrService.createCustomer({
+        firstName,
+        lastName,
+        email,
+        dateOfBirth: new Date(dateOfBirth),
+        address
+      });
+
+      // Update user with Modulr customer ID
+      user.modulrAccounts.customerId = modulrCustomer.id;
+      await user.save();
+
+    } catch (modulrError) {
+      // If Modulr fails, delete the user and return error
+      await User.findByIdAndDelete(user._id);
+      return res.status(400).json({
+        status: 'error',
+        message: 'Failed to create payment account: ' + modulrError.message
+      });
+    }
+
+    createSendToken(user, 201, res);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
   }
 };
 
-// @desc    Auth user & get token
-// @route   POST /api/auth/login
-// @access  Public
-exports.login = async (req, res) => {
+export const login = async (req, res, next) => {
   try {
     const { email, password } = req.body;
 
-    const user = await User.findOne({ email });
-
-    if (user && (await user.matchPassword(password))) {
-      res.json({
-        _id: user._id,
-        name: user.name,
-        email: user.email,
-        token: generateToken(user._id),
+    if (!email || !password) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Please provide email and password'
       });
-    } else {
-      res.status(401).json({ message: 'Invalid email or password' });
     }
+
+    const user = await User.findOne({ email }).select('+password');
+
+    if (!user || !(await user.correctPassword(password, user.password))) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Incorrect email or password'
+      });
+    }
+
+    user.lastLogin = new Date();
+    await user.save();
+
+    createSendToken(user, 200, res);
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+export const getProfile = async (req, res, next) => {
+  try {
+    const user = await User.findById(req.user.id);
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+export const updateProfile = async (req, res, next) => {
+  try {
+    const { firstName, lastName, phone, address } = req.body;
+    
+    const user = await User.findByIdAndUpdate(
+      req.user.id,
+      {
+        'personalDetails.firstName': firstName,
+        'personalDetails.lastName': lastName,
+        'personalDetails.phone': phone,
+        'personalDetails.address': address
+      },
+      {
+        new: true,
+        runValidators: true
+      }
+    );
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        user
+      }
+    });
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
+  }
+};
+
+export const changePassword = async (req, res, next) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    
+    const user = await User.findById(req.user.id).select('+password');
+
+    if (!(await user.correctPassword(currentPassword, user.password))) {
+      return res.status(401).json({
+        status: 'error',
+        message: 'Your current password is wrong'
+      });
+    }
+
+    user.password = newPassword;
+    await user.save();
+
+    createSendToken(user, 200, res);
+  } catch (error) {
+    res.status(500).json({
+      status: 'error',
+      message: error.message
+    });
   }
 };

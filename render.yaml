@@ -1,0 +1,26 @@
+services:
+  - type: web
+    name: goalguard-api
+    env: node
+    plan: free
+    buildCommand: cd server && npm install
+    startCommand: cd server && npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_ATLAS_URI
+        fromDatabase:
+          name: goalguard-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MODULR_API_KEY
+        sync: false
+      - key: MODULR_API_SECRET
+        sync: false
+
+databases:
+  - name: goalguard-db
+    plan: free
+    databaseName: goalguard
+    ipAllowList: []

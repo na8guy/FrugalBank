@@ -34,7 +34,7 @@ const userSchema = new mongoose.Schema({
       enum: ['basic', 'plus', 'pro'],
       default: 'basic'
     },
-    startDate: Date,
+    startDate: { type: Date, default: Date.now },
     renewalDate: Date,
     status: {
       type: String,
@@ -75,24 +75,19 @@ const userSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Indexes for performance
 userSchema.index({ email: 1 });
 userSchema.index({ 'modulrAccounts.customerId': 1 });
 
-// Password hashing middleware
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
-  
   this.password = await bcrypt.hash(this.password, 12);
   next();
 });
 
-// Password comparison method
-userSchema.methods.correctPassword = async function(candidatePassword, userPassword) {
-  return await bcrypt.compare(candidatePassword, userPassword);
+userSchema.methods.correctPassword = async function(candidatePassword) {
+  return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Update timestamp middleware
 userSchema.pre('save', function(next) {
   this.updatedAt = Date.now();
   next();

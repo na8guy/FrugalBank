@@ -1,36 +1,36 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
 const transactionSchema = new mongoose.Schema({
   userId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User',
-    required: true,
+    required: true
   },
-  savingsGoalId: {
+  goalId: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'SavingsGoal',
+    ref: 'SavingsGoal'
   },
   type: {
     type: String,
-    enum: ['Deposit', 'Withdrawal', 'Prize', 'Fee'],
-    required: true,
+    enum: ['contribution', 'withdrawal', 'fee', 'bonus', 'prize'],
+    required: true
   },
   amount: {
     type: Number,
-    required: true,
+    required: true
   },
+  status: {
+    type: String,
+    enum: ['pending', 'completed', 'failed', 'cancelled'],
+    default: 'pending'
+  },
+  reference: String,
   description: String,
-  date: {
-    type: Date,
-    default: Date.now,
-  },
-  // For withdrawals, track if it was an emergency withdrawal
-  isEmergencyWithdrawal: {
-    type: Boolean,
-    default: false,
-  },
-  // Modulr transaction ID for reference
-  modulrTransactionId: String,
+  metadata: mongoose.Schema.Types.Mixed,
+  createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('Transaction', transactionSchema);
+transactionSchema.index({ userId: 1, createdAt: -1 });
+transactionSchema.index({ goalId: 1 });
+
+export default mongoose.model('Transaction', transactionSchema);

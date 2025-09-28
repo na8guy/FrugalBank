@@ -68,12 +68,10 @@ const savingsGoalSchema = new mongoose.Schema({
   updatedAt: { type: Date, default: Date.now }
 });
 
-// Indexes
 savingsGoalSchema.index({ userId: 1, status: 1 });
 savingsGoalSchema.index({ endDate: 1 });
 savingsGoalSchema.index({ category: 1 });
 
-// Virtuals
 savingsGoalSchema.virtual('isLocked').get(function() {
   return new Date() < this.restrictions.allowedWithdrawalDate;
 });
@@ -84,7 +82,6 @@ savingsGoalSchema.virtual('daysUntilWithdrawal').get(function() {
   return Math.ceil((withdrawalDate - now) / (1000 * 60 * 60 * 24));
 });
 
-// Pre-save middleware to calculate progress
 savingsGoalSchema.pre('save', function(next) {
   this.progress.percentage = (this.currentAmount / this.targetAmount) * 100;
   

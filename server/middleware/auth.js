@@ -11,37 +11,27 @@ export const protect = async (req, res, next) => {
 
     if (!token) {
       return res.status(401).json({
-        success: false,
-        message: 'Not authorized to access this route'
+        status: 'error',
+        message: 'You are not logged in. Please log in to get access.'
       });
     }
 
-    try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      req.user = await User.findById(decoded.id).select('-password');
-      next();
-    } catch (error) {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const currentUser = await User.findById(decoded.id);
+    
+    if (!currentUser) {
       return res.status(401).json({
-        success: false,
-        message: 'Not authorized to access this route'
+        status: 'error',
+        message: 'The user belonging to this token no longer exists.'
       });
     }
+
+    req.user = currentUser;
+    next();
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: 'Server error in authentication'
+    return res.status(401).json({
+      status: 'error',
+      message: 'Invalid token. Please log in again.'
     });
   }
-};
-
-export const authorize = (...roles) => {
-  return (req, res, next) => {
-    if (!roles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        message: `User role ${req.user.role} is not authorized to access this route`
-      });
-    }
-    next();
-  };
 };
